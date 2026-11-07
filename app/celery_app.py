@@ -18,4 +18,12 @@ celery_app.conf.update(
     # Fail fast on publish when the broker is down (webhook must answer within 2 s).
     broker_connection_timeout=1,
     timezone="UTC",
+    beat_schedule={
+        "reap-stuck": {
+            "task": "app.tasks.reap_stuck",
+            "schedule": 60.0,
+            # A pass not started within a minute is superseded by the next one.
+            "options": {"expires": 60},
+        },
+    },
 )
