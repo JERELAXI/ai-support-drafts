@@ -1,10 +1,11 @@
 import logging
 import random
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from celery import Task
-from sqlalchemy import Row, func, update
+from sqlalchemy import Row, func, select, update
 
 from app import helpdesk_client, rate_limit
 from app.celery_app import celery_app
@@ -22,6 +23,13 @@ BACKOFF_BASE_SECONDS = 5
 BACKOFF_MAX_SECONDS = 300
 SEND_BACKOFF_MAX_SECONDS = 60
 LAST_ERROR_MAX_LEN = 1000
+
+REAP_LIMIT = 100
+REAP_RECEIVED_AFTER = timedelta(minutes=1)
+REAP_GENERATING_AFTER = timedelta(minutes=5)
+REAP_APPROVED_AFTER = timedelta(minutes=2)
+# Longer than the max send backoff (60 s) + timeout, so a live retry is not duplicated.
+REAP_SENDING_AFTER = timedelta(minutes=5)
 
 S = TicketStatus
 
@@ -210,3 +218,72 @@ def send_reply(self: Task, ticket_id: str) -> None:
         raise self.retry(countdown=countdown) from exc
 
     _transition(tid, S.sending, S.sent, last_error=None)
+
+
+def _claim_stuck(
+    status: TicketStatus, older_than: timedelta, limit: int, to_status: TicketStatus | None = None
+) -> list[uuid.UUID]:
+    """Touch updated_at (and optionally move to to_status) for tickets stuck in status."""
+    if limit <= 0:
+        return []
+    stuck = (
+        select(Ticket.id)
+        .where(Ticket.status == status, Ticket.updated_at < func.now() - older_than)
+        .order_by(Ticket.updated_at)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    with SyncSessionLocal() as session:
+        ids = list(
+            session.execute(
+                update(Ticket)
+                .where(Ticket.id.in_(stuck), Ticket.status == status)
+                .values(status=to_status or status, updated_at=func.now())
+                .returning(Ticket.id)
+            ).scalars()
+        )
+        session.commit()
+    for ticket_id in ids:
+        if to_status is None:
+            logger.info("ticket=%s reaper: stuck in %s, touched", ticket_id, status)
+        else:
+            logger.info("ticket=%s reaper: %s -> %s", ticket_id, status, to_status)
+    return ids
+
+
+def _requeue(task: Task, ticket_ids: list[uuid.UUID]) -> None:
+    for ticket_id in ticket_ids:
+        try:
+            task.apply_async(args=[str(ticket_id)])
+        except Exception:
+            # updated_at is already touched: the next pass picks the ticket up again.
+            logger.exception("ticket=%s reaper: enqueue %s failed", ticket_id, task.name)
+        else:
+            logger.info("ticket=%s reaper: %s enqueued", ticket_id, task.name)
+
+
+@celery_app.task
+def reap_stuck() -> None:
+    budget = REAP_LIMIT
+    received = _claim_stuck(S.received, REAP_RECEIVED_AFTER, budget)
+    _requeue(generate_draft, received)
+    budget -= len(received)
+
+    # Picked up by the received rule on a later pass.
+    generating = _claim_stuck(S.generating, REAP_GENERATING_AFTER, budget, S.received)
+    budget -= len(generating)
+
+    approved = _claim_stuck(S.approved, REAP_APPROVED_AFTER, budget)
+    _requeue(send_reply, approved)
+    budget -= len(approved)
+
+    sending = _claim_stuck(S.sending, REAP_SENDING_AFTER, budget)
+    _requeue(send_reply, sending)
+
+    logger.info(
+        "reaper picked received=%d generating=%d approved=%d sending=%d",
+        len(received),
+        len(generating),
+        len(approved),
+        len(sending),
+    )
