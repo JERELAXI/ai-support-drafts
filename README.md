@@ -85,12 +85,12 @@ stateDiagram-v2
 ## Running
 
 ```bash
-cp .env.example .env
-# edit .env: set OPERATOR_PASSWORD (and real passwords for Postgres/RabbitMQ)
 docker compose up --build
 ```
 
-- `OPERATOR_USER` and `OPERATOR_PASSWORD` are **required**. Without them none of the app services start, so the operator UI never runs unprotected or with a default password.
+- For a local run nothing else is needed: `docker-compose.yml` loads `.env.example` as defaults (operator login `operator` / `change-me`). Create `.env` only to change passwords or add an LLM key — any variable set there overrides the default (`cp .env.example .env` and edit, or put only the variables you change). This needs Docker Compose 2.24+ (optional `env_file`).
+- `OPERATOR_USER` and `OPERATOR_PASSWORD` are **required**: if either ends up empty, none of the app services start, so the operator UI never runs unprotected. The `change-me` defaults are for local use only; the production setup below replaces them.
+- Postgres and RabbitMQ apply their passwords only when their volumes are first created; after changing them in `.env`, run `docker compose down -v` (wipes the data) or keep the old ones.
 - **With an LLM key:** set `LLM_API_KEY` (and optionally `LLM_MODEL`, `LLM_BASE_URL`) in `.env`. Drafts come from the model.
 - **Without a key** (leave `LLM_API_KEY` empty): the worker still makes a real HTTP request to the provider (expected `401`), then returns a static draft built from the found articles after a random 5–30 s delay. The rate limiter, retries and statuses behave exactly as with a key.
 - The `migrate` service runs `alembic upgrade head` and seeds the knowledge base from `seed/kb/*.md`. The seed is baked into the image, so **after changing `seed/kb/` run `docker compose build migrate`** (then `docker compose up migrate`), otherwise the old articles are loaded.

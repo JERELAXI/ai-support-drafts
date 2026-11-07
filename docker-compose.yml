@@ -1,6 +1,12 @@
+# .env.example gives working local defaults; an optional .env overrides them.
+x-env-file: &env_file
+  - .env.example
+  - path: .env
+    required: false
+
 x-app: &app
   build: .
-  env_file: .env
+  env_file: *env_file
   depends_on:
     postgres:
       condition: service_healthy
@@ -14,7 +20,7 @@ x-app: &app
 services:
   postgres:
     image: postgres:16
-    env_file: .env
+    env_file: *env_file
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -27,7 +33,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
-    env_file: .env
+    env_file: *env_file
     volumes:
       - rabbitmqdata:/var/lib/rabbitmq
     ports:
@@ -49,7 +55,7 @@ services:
 
   migrate:
     build: .
-    env_file: .env
+    env_file: *env_file
     command: sh -c "alembic upgrade head && python -m scripts.seed_kb"
     restart: "no"
     depends_on:
