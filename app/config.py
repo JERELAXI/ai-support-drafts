@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_timeout: float = 30.0
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_rate_limit: int = 60
 
     helpdesk_timeout: float = 5.0
 
