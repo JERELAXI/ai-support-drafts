@@ -8,17 +8,17 @@ Requirements and design decisions live in [`SPEC.md`](SPEC.md) (in Ukrainian). E
 
 | What | Link |
 |---|---|
-| Webhook | `<WEBHOOK_URL>` — `POST /webhooks/helpdesk` |
-| Operator UI | `<OPERATOR_URL>` — `/operator` (HTTP Basic Auth) |
-| Health | `<HEALTH_URL>` — `/health` |
-| Helpdesk mock replies | `<MOCK_REPLIES_URL>` — `GET /replies` |
+| Webhook | `POST` <https://34-173-82-162.sslip.io/webhooks/helpdesk> |
+| Operator UI | <https://34-173-82-162.sslip.io/operator> (HTTP Basic Auth) |
+| Health | <https://34-173-82-162.sslip.io/health> |
+| Helpdesk mock replies | <https://34-173-82-162.sslip.io/mock/replies> |
 
-Operator credentials are provided separately.
+Operator credentials are provided separately. Only `GET /mock/replies` of the helpdesk mock is public; every other `/mock/*` path returns `404`.
 
 Send a test ticket to the public webhook:
 
 ```bash
-curl -i -X POST <WEBHOOK_URL> \
+curl -i -X POST https://34-173-82-162.sslip.io/webhooks/helpdesk \
   -H 'Content-Type: application/json' \
   -d '{
         "event_id": "evt-demo-'"$(date +%s)"'",
@@ -30,7 +30,7 @@ curl -i -X POST <WEBHOOK_URL> \
 # HTTP/1.1 202 Accepted  {"status":"accepted","duplicate":false}
 ```
 
-Keep `reply_url` as `http://helpdesk-mock:8001/tickets/<id>/replies` (with `<id>` equal to `ticket_id`): the approved reply is sent by the worker from inside the compose network, where the mock is reachable by its service name, not by a public URL. The draft shows up in the operator UI in 5–30 s (no-key mode), and after approval the reply appears in `<MOCK_REPLIES_URL>`.
+Keep `reply_url` as `http://helpdesk-mock:8001/tickets/<id>/replies` (with `<id>` equal to `ticket_id`): the approved reply is sent by the worker from inside the compose network, where the mock is reachable by its service name, not by a public URL. The draft shows up in the operator UI in 5–30 s (no-key mode), and after approval the reply appears in <https://34-173-82-162.sslip.io/mock/replies>.
 
 ## Architecture
 
@@ -163,6 +163,59 @@ Correctness held in every run: 1500 × `202`, 500 new / 1000 duplicates, exactly
 The pool is configurable (`API_DB_POOL_SIZE`, `API_DB_MAX_OVERFLOW`), but it is **not** what limits the tail at concurrency 50: a bigger pool, an in-memory broker instead of RabbitMQ, 4 uvicorn workers, and running the load from inside the compose network all gave the same picture, and even `/docs` (no DB) slows down the same way. Above roughly 15 concurrent requests throughput drops (≈ 450 → ≈ 190 req/s) while the API container uses about a third of its CPUs, so the limit appears to be the local Docker environment rather than the service; this was not profiled further. At the real peak the webhook answers in tens of milliseconds. Re-measure on the deployment target.
 
 Note that the load test creates real tickets in the main database; the worker will generate drafts for all of them (within the 60/min LLM limit).
+
+## Deployment
+
+The demo runs on a clean Ubuntu VM in GCP with only ports 22, 80 and 443 open. HTTPS comes from [Caddy](https://caddyserver.com/) with an automatic Let's Encrypt certificate for an [sslip.io](https://sslip.io/) hostname (`34-173-82-162.sslip.io` resolves to `34.173.82.162`), so no own domain is needed. Port 80 must stay open: Let's Encrypt uses it for the HTTP-01 challenge, and Caddy redirects it to HTTPS.
+
+`docker-compose.prod.yml` is an override on top of `docker-compose.yml`: it adds the `caddy` service (ports 80/443, certificates in the `caddy_data` volume, config in [`deploy/Caddyfile`](deploy/Caddyfile)) and removes the published ports `8000`/`8001` of `api` and `helpdesk-mock`, so they are reachable only through Caddy over HTTPS. Caddy routes `GET /mock/replies` to the mock (with the `/mock` prefix stripped), returns `404` for any other `/mock/*` path, and sends everything else to `api`.
+
+1. Install Docker (Engine + Compose plugin) and allow your user to run it:
+
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh
+   sudo usermod -aG docker "$USER" && newgrp docker
+   ```
+
+2. Clone the repository:
+
+   ```bash
+   git clone https://github.com/JERELAXI/ai-support-drafts.git && cd ai-support-drafts
+   ```
+
+3. Create `.env` with random passwords and the domain (`<ip-with-dashes>.sslip.io` for the VM's external IP):
+
+   ```bash
+   cp .env.example .env
+   PG_PASS=$(openssl rand -hex 16)
+   MQ_PASS=$(openssl rand -hex 16)
+   OP_PASS=$(openssl rand -hex 16)
+   sed -i \
+     -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
+     -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://support:$PG_PASS@postgres:5432/support|" \
+     -e "s|^RABBITMQ_DEFAULT_PASS=.*|RABBITMQ_DEFAULT_PASS=$MQ_PASS|" \
+     -e "s|^CELERY_BROKER_URL=.*|CELERY_BROKER_URL=amqp://support:$MQ_PASS@rabbitmq:5672//|" \
+     -e "s|^OPERATOR_PASSWORD=.*|OPERATOR_PASSWORD=$OP_PASS|" \
+     -e "s|^DOMAIN=.*|DOMAIN=34-173-82-162.sslip.io|" \
+     .env
+   echo "Operator password: $OP_PASS"
+   ```
+
+   Hex passwords are safe inside the `DATABASE_URL` and `CELERY_BROKER_URL` URLs. Postgres and RabbitMQ apply their passwords only when their volumes are first created, so set them before the first start. Optionally set `LLM_API_KEY`.
+
+4. Start the stack:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+   ```
+
+5. Check it (the first request may take a few seconds while Caddy obtains the certificate):
+
+   ```bash
+   curl -i https://34-173-82-162.sslip.io/health
+   ```
+
+`DOMAIN` is required by the override: without it `docker compose` refuses to start. Logs: `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f caddy api worker`.
 
 ## Key decisions and trade-offs
 

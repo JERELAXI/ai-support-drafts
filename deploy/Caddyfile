@@ -1,0 +1,20 @@
+# DOMAIN comes from the environment, e.g. 34-173-82-162.sslip.io.
+# Caddy obtains and renews the Let's Encrypt certificate and redirects HTTP to HTTPS.
+{$DOMAIN} {
+	# Only the read-only list of replies is public; the rest of the mock stays internal.
+	@mock_replies {
+		method GET
+		path /mock/replies
+	}
+	handle @mock_replies {
+		uri strip_prefix /mock
+		reverse_proxy helpdesk-mock:8001
+	}
+	handle /mock/* {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy api:8000
+	}
+}

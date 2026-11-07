@@ -1,0 +1,28 @@
+# Production override: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - helpdesk-mock
+
+  # Reachable only through Caddy (HTTPS), never directly over HTTP.
+  api:
+    ports: !reset []
+
+  helpdesk-mock:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:
