@@ -10,7 +10,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
+from app.enqueue import enqueue
 from app.models import KbArticle, Ticket, TicketStatus
+from app.tasks import send_reply
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +101,7 @@ async def approve(
         return _back("empty_text")
     if not await _drafted_to(session, ticket_id, TicketStatus.approved, final_message=text):
         return _back("already_processed")
-    # TODO(stage 6): enqueue send_reply(ticket_id) after commit.
+    await enqueue(send_reply, ticket_id)
     return _back()
 
 

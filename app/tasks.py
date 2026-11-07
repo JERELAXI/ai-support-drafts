@@ -6,10 +6,11 @@ from typing import Any
 from celery import Task
 from sqlalchemy import Row, func, update
 
-from app import rate_limit
+from app import helpdesk_client, rate_limit
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.db import SyncSessionLocal
+from app.helpdesk_client import HelpdeskPermanentError, HelpdeskTemporaryError
 from app.kb import search_articles_sync
 from app.llm import LLMPermanentError, LLMTemporaryError
 from app.llm import generate_draft as llm_generate_draft
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 BACKOFF_BASE_SECONDS = 5
 BACKOFF_MAX_SECONDS = 300
+SEND_BACKOFF_MAX_SECONDS = 60
 LAST_ERROR_MAX_LEN = 1000
 
 S = TicketStatus
@@ -64,8 +66,8 @@ def _count_attempt(ticket_id: uuid.UUID) -> int | None:
     return attempts
 
 
-def _backoff(attempts: int) -> float:
-    delay = min(BACKOFF_MAX_SECONDS, BACKOFF_BASE_SECONDS * 2 ** (attempts - 1))
+def _backoff(attempts: int, max_seconds: float = BACKOFF_MAX_SECONDS) -> float:
+    delay = min(max_seconds, BACKOFF_BASE_SECONDS * 2 ** (attempts - 1))
     return delay * random.uniform(0.5, 1.0)
 
 
@@ -140,3 +142,71 @@ def generate_draft(self: Task, ticket_id: str) -> None:
         draft_sources=result.sources,
         last_error=None,
     )
+
+
+def _start_sending(ticket_id: uuid.UUID) -> Row | None:
+    """approved|sending -> sending and count the attempt in one commit, before the request."""
+    with SyncSessionLocal() as session:
+        row = session.execute(
+            update(Ticket)
+            .where(Ticket.id == ticket_id, Ticket.status.in_([S.approved, S.sending]))
+            .values(status=S.sending, attempts_send=Ticket.attempts_send + 1, updated_at=func.now())
+            .returning(
+                Ticket.reply_url, Ticket.ticket_id, Ticket.final_message, Ticket.attempts_send
+            )
+        ).first()
+        session.commit()
+    if row is None:
+        logger.info("ticket=%s skip -> sending: ticket not in approved/sending", ticket_id)
+    else:
+        logger.info(
+            "ticket=%s approved|sending -> sending (attempt %d)", ticket_id, row.attempts_send
+        )
+    return row
+
+
+@celery_app.task(bind=True, max_retries=None)
+def send_reply(self: Task, ticket_id: str) -> None:
+    tid = uuid.UUID(ticket_id)
+    row = _start_sending(tid)
+    if row is None:
+        return
+    attempts: int = row.attempts_send
+    max_attempts = get_settings().max_send_attempts
+
+    if attempts > max_attempts:
+        # Earlier attempts never finished (worker lost mid-request): stop resending.
+        error = f"no result after {max_attempts} attempts"
+        logger.warning("ticket=%s send gave up: %s", tid, error)
+        _transition(tid, S.sending, S.send_failed, last_error=error)
+        return
+
+    try:
+        helpdesk_client.send_reply(row.reply_url, row.ticket_id, row.final_message, tid)
+    except HelpdeskPermanentError as exc:
+        error = f"{type(exc).__name__}: {exc}"[:LAST_ERROR_MAX_LEN]
+        logger.warning("ticket=%s permanent helpdesk error: %s", tid, error)
+        _transition(tid, S.sending, S.send_failed, last_error=error)
+        return
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"[:LAST_ERROR_MAX_LEN]
+        if attempts >= max_attempts:
+            logger.warning("ticket=%s send gave up after %d attempts: %s", tid, attempts, error)
+            _transition(tid, S.sending, S.send_failed, last_error=error)
+            return
+        # Stays in sending between retries; the Idempotency-Key prevents a duplicate reply.
+        if _transition(tid, S.sending, S.sending, last_error=error) is None:
+            return
+        countdown = _backoff(attempts, SEND_BACKOFF_MAX_SECONDS)
+        logger.warning(
+            "ticket=%s send attempt %d/%d failed: %s; retry in %.0fs",
+            tid,
+            attempts,
+            max_attempts,
+            error,
+            countdown,
+            exc_info=not isinstance(exc, HelpdeskTemporaryError),
+        )
+        raise self.retry(countdown=countdown) from exc
+
+    _transition(tid, S.sending, S.sent, last_error=None)

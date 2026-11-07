@@ -101,11 +101,17 @@ received → generating → drafted → approved → sending → sent
 - Інтерфейс базовий: Jinja2 + мінімальний CSS, без уваги до дизайну.
 
 ### 5.4 Надсилання (Celery-задача `send_reply`)
-1. `UPDATE status='sending' WHERE id=:id AND status IN ('approved','sending')` — повтор після збою знову бере `sending`.
-2. `POST <reply_url>` з тілом `{ticket_id, message}` і заголовком `Idempotency-Key: <ticket.id>`, таймаут ~5 с.
-3. `201` → `status='sent'`.
-4. 5xx / таймаут / мережева помилка → `retry` з експоненційною затримкою; після N спроб → `send_failed`.
-5. 4xx (крім 409/429) → без повторів, `send_failed`.
+1. `UPDATE status='sending', attempts_send = attempts_send + 1 WHERE id=:id AND status IN ('approved','sending') RETURNING ...` — повтор після збою знову бере `sending`. Спроба рахується тим самим комітом до запиту, тож падіння воркера посеред запиту теж рахується. Якщо 0 рядків — вихід.
+2. Якщо `attempts_send` уже більше за `MAX_SEND_ATTEMPTS` (попередні спроби не завершилися, бо падав воркер) — `send_failed` без запиту.
+3. `POST <reply_url>` з тілом `{ticket_id, message}` і заголовком `Idempotency-Key: <ticket.id>`, таймаут `HELPDESK_TIMEOUT` (5 с).
+4. `201` → `status='sent'`, `last_error=NULL`.
+5. 5xx / 409 / 429 / таймаут / мережева помилка — тимчасова помилка. Якщо `attempts_send < MAX_SEND_ATTEMPTS`: записати `last_error` (умовно `WHERE status='sending'`; 0 рядків — вихід) і `retry` з затримкою `min(60, 5·2^(n−1)) × jitter 0.5–1.0`. Статус між повторами лишається `sending`, не повертається в `approved`. Після ліміту → `send_failed` + `last_error`.
+6. Інші 4xx (і будь-який неочікуваний статус, крім `201`) → без повторів, `send_failed` + `last_error`.
+7. Ліміт спроб — колонка `attempts_send`, а не `max_retries` Celery (`max_retries=None`), як у §5.2.
+
+Постановка в чергу з `approve` — після коміту, тим самим неблокуючим способом, що й у вебхуку (§5.1): якщо публікація не вдалася, тікет лишається `approved` до «підбирача».
+
+`send_failed` означає «не отримали підтвердження», а не «клієнт не отримав відповідь»: при таймауті хелпдеск міг прийняти запит. Повторне надсилання з тим самим `Idempotency-Key` безпечне.
 
 **Захист від подвійної відповіді клієнту:**
 - Атомарний перехід статусу — дві задачі не надсилають одночасно.
@@ -137,15 +143,17 @@ received → generating → drafted → approved → sending → sent
 
 ## 8. Мок хелпдеску (`helpdesk-mock`)
 
-- `POST /tickets/{ticket_id}/replies` — приймає відповідь.
-  - Конфігуровано: ~20% відповідей 5xx, ~10% — затримка довша за таймаут клієнта.
-  - Дедуплікація за `Idempotency-Key`: повторний ключ → той самий `201`, без нового запису.
+- `POST /tickets/{ticket_id}/replies` — приймає відповідь, заголовок `Idempotency-Key` обов'язковий (без нього — `400`).
+  - Конфіг через env: `MOCK_ERROR_RATE=0.2` — частка `500` (нічого не зберігається); `MOCK_SLOW_RATE=0.1` — частка повільних відповідей; `MOCK_SLOW_SECONDS=8` — затримка, має бути більшою за `HELPDESK_TIMEOUT`.
+  - Повільна відповідь: мок **спочатку зберігає** відповідь, потім чекає — імітація «хелпдеск прийняв, але ми не отримали `201`».
+  - Дедуплікація за `Idempotency-Key`: повторний ключ → той самий `201` з тим самим записом, без нового запису.
+  - Сховище в пам'яті під `asyncio.Lock`, тому мок працює одним процесом; після рестарту записи зникають.
 - `GET /replies` — список отриманих відповідей (для перевірки, що дублікатів немає).
 - `scripts/send_webhooks.py` — шле звернення на вебхук, зокрема ту саму подію кілька разів одночасно, і пакет на 500 звернень для перевірки піку.
 
 ## 9. Конфігурація
 
-`.env` (у репозиторії — `.env.example`): `DATABASE_URL`, `CELERY_BROKER_URL` (amqp://...), `REDIS_URL`, `LLM_API_KEY`, `LLM_MODEL`, `HELPDESK_TIMEOUT`, ліміти повторів. Секрети не комітимо.
+`.env` (у репозиторії — `.env.example`): `DATABASE_URL`, `CELERY_BROKER_URL` (amqp://...), `REDIS_URL`, `LLM_API_KEY`, `LLM_MODEL`, `HELPDESK_TIMEOUT`, ліміти повторів (`MAX_GENERATE_ATTEMPTS`, `MAX_SEND_ATTEMPTS`), параметри мока (`MOCK_ERROR_RATE`, `MOCK_SLOW_RATE`, `MOCK_SLOW_SECONDS`). Секрети не комітимо.
 
 ## 10. Тести (pytest)
 

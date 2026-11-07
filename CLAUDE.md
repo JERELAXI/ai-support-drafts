@@ -46,7 +46,7 @@ tests/
 7. The global LLM limit (60/min) is enforced via Redis, not Celery `rate_limit`.
 8. No-key mode must still make a real HTTP request to the provider, then return a static response after a random 5–30 s delay.
 9. Never commit secrets. Only `.env.example` goes into git.
-10. Before a Celery `retry`, revert the status with a conditional UPDATE (e.g. `generating → received`) so the retried task passes step 1 like the first attempt.
+10. In `generate_draft`, before a Celery `retry`, revert the status with a conditional UPDATE (`generating → received`) so the retried task passes step 1 like the first attempt. `send_reply` stays in `sending` between retries (step 1 accepts `approved|sending`); duplicates are prevented by the `Idempotency-Key`.
 
 ## Workflow
 - Work strictly stage by stage as listed in SPEC.md §11. One stage per task.
