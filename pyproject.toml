@@ -32,3 +32,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
 known-third-party = ["alembic"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

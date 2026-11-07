@@ -72,7 +72,12 @@ services:
 
   helpdesk-mock:
     build: .
+    # Single process: replies are stored in memory.
     command: uvicorn helpdesk_mock.main:app --host 0.0.0.0 --port 8001
+    environment:
+      MOCK_ERROR_RATE: ${MOCK_ERROR_RATE:-0.2}
+      MOCK_SLOW_RATE: ${MOCK_SLOW_RATE:-0.1}
+      MOCK_SLOW_SECONDS: ${MOCK_SLOW_SECONDS:-8}
     ports:
       - "8001:8001"
 
