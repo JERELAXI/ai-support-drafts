@@ -6,12 +6,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
+from app.kb import router as kb_router
 from app.webhooks import router as webhooks_router
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="AI Support Drafts")
 app.include_router(webhooks_router)
+app.include_router(kb_router)
 
 
 @app.get("/health")

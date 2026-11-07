@@ -53,6 +53,7 @@ tests/
 - Before writing code for a stage: briefly state the plan and the files you will touch, then wait for confirmation.
 - Keep changes small and focused; do not refactor unrelated code.
 - After each stage: run `ruff check`, run tests, then stop so the changes can be reviewed and committed.
+- After each stage, append to docs/decisions.md any deviations from SPEC.md and any corrections (mine or yours), with reasons.
 - Do not squash or rewrite git history.
 
 ## Code style
