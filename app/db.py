@@ -9,7 +9,12 @@ from app.config import get_settings
 settings = get_settings()
 
 # Async engine: FastAPI routes.
-async_engine = create_async_engine(settings.async_database_url, pool_pre_ping=True)
+async_engine = create_async_engine(
+    settings.async_database_url,
+    pool_pre_ping=True,
+    pool_size=settings.api_db_pool_size,
+    max_overflow=settings.api_db_max_overflow,
+)
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
 
 # Sync engine: Celery tasks. One connection per worker thread, so threads never wait for the pool.
