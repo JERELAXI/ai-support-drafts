@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     helpdesk_timeout: float = 5.0
 
+    worker_concurrency: int = 20
+
     max_generate_attempts: int = 5
     max_send_attempts: int = 5
 
