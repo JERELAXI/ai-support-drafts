@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<title>Оператор — чернетки</title>
+<style>
+  body { font-family: sans-serif; margin: 1rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; vertical-align: top; text-align: left; }
+  textarea { width: 100%; min-height: 8em; }
+  .notice { background: #ffe9a8; padding: 6px 10px; margin: 8px 0; }
+  .err { color: #b00; }
+  form { margin: 0 0 4px; }
+  nav a { margin-right: 8px; }
+  nav a.active { font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Звернення</h1>
+<nav>
+  <a href="/operator" class="{{ 'active' if current_status is none }}">усі</a>
+  {% for s in statuses %}
+  <a href="/operator?status={{ s.value }}" class="{{ 'active' if current_status == s }}">{{ s.value }}</a>
+  {% endfor %}
+</nav>
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+<table>
+  <tr>
+    <th>ticket_id</th><th>email</th><th>повідомлення</th><th>статус</th>
+    <th>чернетка</th><th>джерела</th><th>last_error</th>
+  </tr>
+  {% for t in tickets %}
+  <tr>
+    <td>{{ t.ticket_id }}</td>
+    <td>{{ t.customer_email }}</td>
+    <td>{{ t.message }}</td>
+    <td>{{ t.status.value }}</td>
+    <td>
+      {% if t.status.value == 'drafted' %}
+      <form method="post" action="/operator/tickets/{{ t.id }}/approve">
+        <textarea name="final_message" required>{{ t.draft }}</textarea>
+        <button type="submit">Підтвердити</button>
+        <button type="submit" formaction="/operator/tickets/{{ t.id }}/reject" formnovalidate>Відхилити</button>
+      </form>
+      {% else %}
+      {{ t.final_message or t.draft or '' }}
+      {% endif %}
+    </td>
+    <td>
+      {% for slug in t.draft_sources or [] %}
+        {% if slug in articles %}<a href="{{ articles[slug].url }}">{{ articles[slug].title }}</a>{% else %}{{ slug }}{% endif %}{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </td>
+    <td class="err">{{ t.last_error or '' }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7">Немає звернень.</td></tr>
+  {% endfor %}
+</table>
+<script>
+  // Auto-refresh every 10 s, unless an operator is editing a draft.
+  var dirty = false;
+  document.addEventListener("input", function (e) {
+    if (e.target.tagName === "TEXTAREA") dirty = true;
+  });
+  setInterval(function () {
+    var active = document.activeElement;
+    if (dirty || (active && active.tagName === "TEXTAREA")) return;
+    location.reload();
+  }, 10000);
+</script>
+</body>
+</html>
