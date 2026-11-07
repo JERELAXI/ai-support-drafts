@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,10 @@ class Settings(BaseSettings):
     llm_rate_limit: int = 60
 
     helpdesk_timeout: float = 5.0
+
+    # HTTP Basic Auth for /operator; required so the UI never starts unprotected.
+    operator_user: str = Field(min_length=1)
+    operator_password: str = Field(min_length=1)
 
     worker_concurrency: int = 20
 
