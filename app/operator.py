@@ -50,9 +50,17 @@ NOTICES = {
     "empty_text": "Текст відповіді не може бути порожнім.",
 }
 
+# Newest tickets shown per page; ?limit= is clamped to 1..MAX_LIMIT (no pagination).
+DEFAULT_LIMIT = 50
+MAX_LIMIT = 200
 
-def _back(notice: str | None = None) -> RedirectResponse:
-    url = "/operator" + (f"?{urlencode({'notice': notice})}" if notice else "")
+
+def _back(status: TicketStatus | None, notice: str | None = None) -> RedirectResponse:
+    """Redirect to the list, keeping the filter tab the operator acted from."""
+    params = {"status": status.value} if status else {}
+    if notice:
+        params["notice"] = notice
+    url = "/operator" + (f"?{urlencode(params)}" if params else "")
     return RedirectResponse(url, status_code=303)
 
 
@@ -91,8 +99,10 @@ async def list_tickets(
     session: Annotated[AsyncSession, Depends(get_session)],
     status: TicketStatus | None = None,
     notice: str | None = None,
+    limit: int = DEFAULT_LIMIT,
 ) -> HTMLResponse:
-    stmt = select(Ticket).order_by(Ticket.created_at.desc())
+    limit = min(max(limit, 1), MAX_LIMIT)
+    stmt = select(Ticket).order_by(Ticket.created_at.desc()).limit(limit)
     if status is not None:
         stmt = stmt.where(Ticket.status == status)
     tickets = (await session.execute(stmt)).scalars().all()
@@ -103,12 +113,17 @@ async def list_tickets(
         rows = await session.execute(select(KbArticle).where(KbArticle.slug.in_(slugs)))
         articles = {a.slug: a for a in rows.scalars()}
 
+    # Per-status totals for the filter pills, independent of the current filter.
+    count_rows = await session.execute(select(Ticket.status, func.count()).group_by(Ticket.status))
+    counts: dict[str, int] = {s.value: n for s, n in count_rows.all()}
+
     return templates.TemplateResponse(
         request,
         "operator.html",
         {
             "tickets": tickets,
             "articles": articles,
+            "counts": counts,
             "statuses": list(TicketStatus),
             "current_status": status,
             "notice": NOTICES.get(notice) if notice else None,
@@ -121,21 +136,23 @@ async def approve(
     ticket_id: uuid.UUID,
     final_message: Annotated[str, Form()],
     session: Annotated[AsyncSession, Depends(get_session)],
+    status: TicketStatus | None = None,
 ) -> RedirectResponse:
     text = final_message.strip()
     if not text:
-        return _back("empty_text")
+        return _back(status, "empty_text")
     if not await _drafted_to(session, ticket_id, TicketStatus.approved, final_message=text):
-        return _back("already_processed")
+        return _back(status, "already_processed")
     await enqueue(send_reply, ticket_id)
-    return _back()
+    return _back(status)
 
 
 @router.post("/tickets/{ticket_id}/reject")
 async def reject(
     ticket_id: uuid.UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
+    status: TicketStatus | None = None,
 ) -> RedirectResponse:
     if not await _drafted_to(session, ticket_id, TicketStatus.rejected):
-        return _back("already_processed")
-    return _back()
+        return _back(status, "already_processed")
+    return _back(status)
