@@ -1,14 +1,17 @@
 import logging
+import secrets
 import uuid
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import get_session
 from app.enqueue import enqueue
 from app.models import KbArticle, Ticket, TicketStatus
@@ -16,7 +19,30 @@ from app.tasks import send_reply
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/operator")
+REALM = "operator"
+basic_auth = HTTPBasic(realm=REALM)
+
+
+def require_operator(credentials: Annotated[HTTPBasicCredentials, Depends(basic_auth)]) -> str:
+    """HTTP Basic check against OPERATOR_USER / OPERATOR_PASSWORD in constant time."""
+    settings = get_settings()
+    # Both comparisons always run, so timing does not reveal a correct username.
+    user_ok = secrets.compare_digest(credentials.username.encode(), settings.operator_user.encode())
+    password_ok = secrets.compare_digest(
+        credentials.password.encode(), settings.operator_password.encode()
+    )
+    if not (user_ok and password_ok):
+        logger.warning("operator auth failed user=%r", credentials.username[:64])
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": f'Basic realm="{REALM}"'},
+        )
+    return credentials.username
+
+
+# Router-level: every /operator route, including approve/reject, requires auth.
+router = APIRouter(prefix="/operator", dependencies=[Depends(require_operator)])
 templates = Jinja2Templates(directory="app/templates")
 
 NOTICES = {
