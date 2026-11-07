@@ -50,7 +50,7 @@ services:
   migrate:
     build: .
     env_file: .env
-    command: alembic upgrade head
+    command: sh -c "alembic upgrade head && python -m scripts.seed_kb"
     restart: "no"
     depends_on:
       postgres:

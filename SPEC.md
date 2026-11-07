@@ -56,7 +56,7 @@
 | title | text |
 | body | text |
 | url | text |
-| search_vector | tsvector (GENERATED з title + body, GIN-індекс) |
+| search_vector | tsvector (GENERATED: `to_tsvector('simple', title \|\| ' ' \|\| body)`, GIN-індекс) |
 
 База знань: 5–10 коротких статей про вигаданий продукт, згенеровані AI, лежать у `seed/kb/*.md` і завантажуються міграцією/скриптом.
 
@@ -85,7 +85,7 @@ received → generating → drafted → approved → sending → sent
 
 ### 5.2 Генерація чернетки (Celery-задача `generate_draft`)
 1. `UPDATE status='generating' WHERE id=:id AND status='received'` — якщо 0 рядків, вихід.
-2. Пошук топ-3 статей: `websearch_to_tsquery` + `ts_rank` по `search_vector`.
+2. Пошук топ-3 статей по `search_vector`: слова звернення (нижній регістр, лише літери й цифри) коротші за 3 символи відкидаються, решта скорочується до перших 5 символів і з'єднується через OR з префіксним збігом: `to_tsquery('simple', 'експо:* | pdf:* | звіт:*')`. Сортування за `ts_rank`. `websearch_to_tsquery` не підходить: він з'єднує слова через AND, а звернення — ціле речення, тож результатів майже завжди нуль. Конфіг `simple`, бо українського словника в Postgres немає; скорочення до основи компенсує відмінювання («експортувати» знаходить «експорт»).
 3. Отримати дозвіл rate limiter'а (§6). Якщо ліміт вичерпано — `retry` із затримкою.
 4. Виклик LLM (§7) з промптом: відповідати тільки з наданих статей, додати посилання на них, якщо відповіді немає — так і сказати.
 5. Зберегти `draft`, `draft_sources`, `status='drafted'`.
