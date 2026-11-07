@@ -124,6 +124,64 @@ async def test_concurrent_double_approve_transitions_once(
     assert enqueued == [("app.tasks.send_reply", ticket_id)]
 
 
+@pytest.mark.anyio
+async def test_operator_actions_redirect_back_to_filter_tab(
+    client: httpx.AsyncClient, enqueued: list[tuple[str, uuid.UUID]]
+) -> None:
+    approved = _create_ticket(TicketStatus.drafted, draft="draft text")
+    rejected = _create_ticket(TicketStatus.drafted, draft="draft text")
+    settings = get_settings()
+    auth = (settings.operator_user, settings.operator_password)
+
+    async def post(path: str, **data: str) -> str:
+        response = await client.post(f"/operator/tickets/{path}", data=data, auth=auth)
+        assert response.status_code == 303
+        return response.headers["location"]
+
+    assert await post(f"{approved}/approve?status=drafted", final_message=" ") == (
+        "/operator?status=drafted&notice=empty_text"
+    )
+    assert await post(f"{approved}/approve?status=drafted", final_message="reply") == (
+        "/operator?status=drafted"
+    )
+    assert await post(f"{approved}/approve?status=drafted", final_message="reply") == (
+        "/operator?status=drafted&notice=already_processed"
+    )
+    assert await post(f"{rejected}/reject?status=drafted") == "/operator?status=drafted"
+    assert await post(f"{rejected}/reject?status=drafted") == (
+        "/operator?status=drafted&notice=already_processed"
+    )
+    assert await post(f"{rejected}/reject") == "/operator?notice=already_processed"
+
+
+@pytest.mark.anyio
+async def test_operator_list_limit_respects_filter_and_is_clamped(
+    client: httpx.AsyncClient,
+) -> None:
+    for _ in range(3):
+        _create_ticket(TicketStatus.drafted, draft="draft text")
+    _create_ticket(TicketStatus.sent, final_message="sent text")
+    settings = get_settings()
+    auth = (settings.operator_user, settings.operator_password)
+
+    async def page(query: str) -> str:
+        response = await client.get(f"/operator?{query}", auth=auth)
+        assert response.status_code == 200
+        return response.text
+
+    filtered = await page("status=drafted&limit=2")
+    assert filtered.count('<article class="ticket') == 2
+    assert "Показано 2 з 3" in filtered
+
+    too_big = await page("limit=1000")
+    assert too_big.count('<article class="ticket') == 4
+    assert "Показано 4 з 4" in too_big
+
+    too_small = await page("limit=0")
+    assert too_small.count('<article class="ticket') == 1
+    assert "Показано 1 з 4" in too_small
+
+
 def test_send_reply_retries_500_then_sent_with_same_idempotency_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

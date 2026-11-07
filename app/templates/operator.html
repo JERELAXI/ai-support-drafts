@@ -2,61 +2,321 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Оператор — чернетки</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" crossorigin="anonymous">
 <style>
-  body { font-family: sans-serif; margin: 1rem; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #ccc; padding: 4px 8px; vertical-align: top; text-align: left; }
-  textarea { width: 100%; min-height: 8em; }
-  .notice { background: #ffe9a8; padding: 6px 10px; margin: 8px 0; }
-  .err { color: #b00; }
-  form { margin: 0 0 4px; }
-  nav a { margin-right: 8px; }
-  nav a.active { font-weight: bold; }
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --line: #e5e7eb;
+    --muted: #6b7280;
+    --ink: #111827;
+    --accent: #2563eb;
+    --accent-soft: #eff4ff;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .06);
+    --shadow-lg: 0 4px 12px rgba(16, 24, 40, .08);
+    --bs-body-font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --bs-body-bg: var(--bg);
+    --bs-body-color: var(--ink);
+    color-scheme: light;
+  }
+  body { background: var(--bg); font-size: .9375rem; -webkit-font-smoothing: antialiased; }
+
+  /* Top bar */
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+  .brand { font-weight: 700; letter-spacing: -.01em; color: var(--ink); text-decoration: none; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 8px; display: inline-grid; place-items: center;
+    background: linear-gradient(135deg, #3b82f6, #7c3aed); color: #fff; font-size: .95rem;
+  }
+  .stat {
+    display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .65rem; border-radius: 999px;
+    font-size: .8125rem; font-weight: 500; color: var(--muted); background: var(--bg);
+    border: 1px solid var(--line); text-decoration: none; white-space: nowrap;
+  }
+  .stat strong { color: var(--ink); font-weight: 600; }
+  .stat-accent { background: var(--accent); border-color: var(--accent); color: #dbe6ff; }
+  .stat-accent strong { color: #fff; }
+  .stat-danger strong { color: #dc2626; }
+
+  /* Filter pills */
+  .pills { display: flex; gap: .375rem; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .pills::-webkit-scrollbar { display: none; }
+  @media (min-width: 768px) { .pills { flex-wrap: wrap; overflow-x: visible; } }
+  .pill {
+    display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .75rem; border-radius: 999px;
+    font-size: .8125rem; font-weight: 500; color: #374151; background: var(--surface);
+    border: 1px solid var(--line); text-decoration: none; white-space: nowrap; transition: background .15s, border-color .15s;
+  }
+  .pill:hover { border-color: #cbd5e1; color: var(--ink); }
+  .pill .n { font-size: .75rem; color: var(--muted); background: var(--bg); border-radius: 999px; padding: 0 .4rem; min-width: 1.4rem; text-align: center; }
+  .pill.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .pill.active .n { background: rgba(255, 255, 255, .18); color: #fff; }
+
+  /* Ticket cards */
+  .ticket { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  .ticket + .ticket { margin-top: .875rem; }
+  .ticket-actionable { border-color: #bfd3fe; box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-lg); position: relative; }
+  .ticket-actionable::before {
+    content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 4px;
+    background: var(--accent); border-radius: 12px 0 0 12px;
+  }
+  .meta { border-right: 1px solid var(--line); }
+  .ticket-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; font-size: .875rem; }
+  .meta-line { font-size: .8125rem; color: var(--muted); display: flex; align-items: center; gap: .375rem; min-width: 0; }
+  .meta-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .section-label { font-size: .6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: .375rem; }
+  .bubble {
+    background: #f3f4f6; border-radius: 4px 14px 14px 14px; padding: .625rem .875rem;
+    white-space: pre-wrap; word-break: break-word; max-width: 46rem;
+  }
+  .draft-text { white-space: pre-wrap; word-break: break-word; color: #374151; }
+  .draft-muted { color: var(--muted); }
+  .sent-block { background: #ecfdf3; border: 1px solid #abefc6; border-left: 3px solid #16a34a; border-radius: 8px; padding: .625rem .875rem; }
+  .sent-block .section-label { color: #15803d; }
+  .queued-block { background: #fffbeb; border: 1px solid #fde68a; border-left: 3px solid #f59e0b; border-radius: 8px; padding: .625rem .875rem; }
+  .queued-block .section-label { color: #b45309; }
+  .error-block {
+    display: flex; gap: .625rem; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+    border-radius: 8px; padding: .625rem .875rem; font-size: .875rem;
+  }
+  .error-block pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: .8125rem; color: inherit; }
+  textarea.draft-input {
+    resize: none; overflow: hidden; min-height: 7rem; line-height: 1.55; border-radius: 8px;
+    border-color: var(--line); padding: .625rem .875rem;
+  }
+  textarea.draft-input:focus { border-color: #93b4fd; box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+  .src-chip {
+    display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .55rem; border-radius: 6px;
+    font-size: .75rem; font-weight: 500; color: #374151; background: var(--bg); border: 1px solid var(--line);
+    text-decoration: none; max-width: 100%;
+  }
+  .src-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  a.src-chip:hover { color: var(--accent); border-color: #bfd3fe; background: var(--accent-soft); }
+  .status-badge { font-weight: 500; font-size: .75rem; padding: .3em .6em; border-radius: 6px; display: inline-flex; align-items: center; gap: .35rem; }
+  .status-badge .spinner-border { width: .7rem; height: .7rem; border-width: .12em; }
+  .btn { font-weight: 500; border-radius: 8px; }
+
+  .empty { text-align: center; padding: 4rem 1rem; color: var(--muted); }
+  .empty i { font-size: 2.5rem; color: #cbd5e1; }
+  .alert { border-radius: 10px; }
+
+  @media (max-width: 767.98px) {
+    .meta { border-right: 0; border-bottom: 1px solid var(--line); }
+    .ticket-actions { flex-direction: column-reverse; }
+    .ticket-actions .btn { width: 100%; }
+  }
 </style>
 </head>
 <body>
-<h1>Звернення</h1>
-<nav>
-  <a href="/operator" class="{{ 'active' if current_status is none }}">усі</a>
-  {% for s in statuses %}
-  <a href="/operator?status={{ s.value }}" class="{{ 'active' if current_status == s }}">{{ s.value }}</a>
-  {% endfor %}
-</nav>
-{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
-<table>
-  <tr>
-    <th>ticket_id</th><th>email</th><th>повідомлення</th><th>статус</th>
-    <th>чернетка</th><th>джерела</th><th>last_error</th>
-  </tr>
-  {% for t in tickets %}
-  <tr>
-    <td>{{ t.ticket_id }}</td>
-    <td>{{ t.customer_email }}</td>
-    <td>{{ t.message }}</td>
-    <td>{{ t.status.value }}</td>
-    <td>
-      {% if t.status.value == 'drafted' %}
-      <form method="post" action="/operator/tickets/{{ t.id }}/approve">
-        <textarea name="final_message" required>{{ t.draft }}</textarea>
-        <button type="submit">Підтвердити</button>
-        <button type="submit" formaction="/operator/tickets/{{ t.id }}/reject" formnovalidate>Відхилити</button>
-      </form>
-      {% else %}
-      {{ t.final_message or t.draft or '' }}
+{% set meta = {
+  'received': ('Отримано', 'text-bg-secondary', 'bi-inbox', false),
+  'generating': ('Генерується', 'text-bg-secondary', '', true),
+  'drafted': ('На модерації', 'text-bg-primary', 'bi-pencil-square', false),
+  'approved': ('Підтверджено', 'text-bg-warning', 'bi-check2', false),
+  'sending': ('Надсилається', 'text-bg-warning', '', true),
+  'sent': ('Надіслано', 'text-bg-success', 'bi-send-check', false),
+  'rejected': ('Відхилено', 'text-bg-dark', 'bi-x-circle', false),
+  'generation_failed': ('Помилка генерації', 'text-bg-danger', 'bi-exclamation-triangle', false),
+  'send_failed': ('Помилка надсилання', 'text-bg-danger', 'bi-exclamation-triangle', false),
+} %}
+{% set total = counts.values() | sum %}
+{% set failed = counts.get('generation_failed', 0) + counts.get('send_failed', 0) %}
+
+<header class="topbar">
+  <div class="container-lg px-3 py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <a class="brand d-inline-flex align-items-center gap-2" href="/operator">
+      <span class="brand-mark"><i class="bi bi-stars"></i></span>
+      AI Support Drafts
+    </a>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="stat stat-accent" href="/operator?status=drafted">
+        <i class="bi bi-pencil-square"></i> На модерації <strong>{{ counts.get('drafted', 0) }}</strong>
+      </a>
+      {% if failed %}
+      <span class="stat stat-danger"><i class="bi bi-exclamation-triangle"></i> Помилки <strong>{{ failed }}</strong></span>
       {% endif %}
-    </td>
-    <td>
-      {% for slug in t.draft_sources or [] %}
-        {% if slug in articles %}<a href="{{ articles[slug].url }}">{{ articles[slug].title }}</a>{% else %}{{ slug }}{% endif %}{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </td>
-    <td class="err">{{ t.last_error or '' }}</td>
-  </tr>
+      <a class="stat" href="/operator?status=sent">
+        <i class="bi bi-send-check"></i> Надіслано <strong>{{ counts.get('sent', 0) }}</strong>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="container-lg px-3 py-4">
+  <nav class="pills mb-3" aria-label="Фільтр за статусом">
+    <a href="/operator" class="pill {{ 'active' if current_status is none }}">Усі <span class="n">{{ total }}</span></a>
+    {% for s in statuses %}
+    <a href="/operator?status={{ s.value }}" class="pill {{ 'active' if current_status == s }}">
+      {{ meta[s.value][0] }} <span class="n">{{ counts.get(s.value, 0) }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  {% if notice %}
+  <div class="alert alert-warning alert-dismissible fade show d-flex align-items-center gap-2" role="alert">
+    <i class="bi bi-info-circle"></i>
+    <div>{{ notice }}</div>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрити"></button>
+  </div>
+  {% endif %}
+
+  {% for t in tickets %}
+  {% set m = meta[t.status.value] %}
+  {% set actionable = t.status.value == 'drafted' %}
+  <article class="ticket {{ 'ticket-actionable' if actionable }}">
+    <div class="row g-0">
+      <div class="col-md-3 meta p-3 d-flex flex-column gap-2">
+        <div class="ticket-id">{{ t.ticket_id }}</div>
+        <div class="meta-line"><i class="bi bi-envelope"></i><span title="{{ t.customer_email }}">{{ t.customer_email }}</span></div>
+        {% if t.created_at %}
+        <div class="meta-line"><i class="bi bi-clock"></i>
+          <time class="rel-time" datetime="{{ t.created_at.isoformat() }}">{{ t.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>
+        </div>
+        {% endif %}
+        <div>
+          <span class="badge status-badge {{ m[1] }}">
+            {% if m[3] %}<span class="spinner-border" aria-hidden="true"></span>{% else %}<i class="bi {{ m[2] }}"></i>{% endif %}
+            {{ m[0] }}
+          </span>
+        </div>
+      </div>
+
+      <div class="col-md-9 p-3 d-flex flex-column gap-3">
+        <div>
+          <div class="section-label">Клієнт</div>
+          <div class="bubble">{{ t.message }}</div>
+        </div>
+
+        {% if actionable %}
+        {# Query string carries the current filter so the redirect returns to this tab. #}
+        {% set back = '?status=' ~ current_status.value if current_status else '' %}
+        <form method="post" action="/operator/tickets/{{ t.id }}/approve{{ back }}" class="d-flex flex-column gap-2">
+          <label class="section-label mb-0" for="draft-{{ t.id }}">Чернетка відповіді</label>
+          <textarea id="draft-{{ t.id }}" class="form-control draft-input" name="final_message" required>{{ t.draft }}</textarea>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div class="d-flex flex-wrap gap-1">
+              {% for slug in t.draft_sources or [] %}
+                {% if slug in articles %}
+                <a class="src-chip" href="{{ articles[slug].url }}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-text"></i><span>{{ articles[slug].title }}</span></a>
+                {% else %}
+                <span class="src-chip"><i class="bi bi-file-earmark-text"></i><span>{{ slug }}</span></span>
+                {% endif %}
+              {% endfor %}
+            </div>
+            <div class="d-flex gap-2 ticket-actions ms-auto">
+              <button type="submit" class="btn btn-outline-danger btn-sm px-3" formaction="/operator/tickets/{{ t.id }}/reject{{ back }}" formnovalidate>
+                <i class="bi bi-x-lg"></i> Відхилити
+              </button>
+              <button type="submit" class="btn btn-success btn-sm px-3">
+                <i class="bi bi-check2"></i> Підтвердити
+              </button>
+            </div>
+          </div>
+        </form>
+        {% else %}
+          {% if t.final_message and t.status.value == 'sent' %}
+          <div class="sent-block">
+            <div class="section-label"><i class="bi bi-send-check"></i> Надіслано клієнту</div>
+            <div class="draft-text">{{ t.final_message }}</div>
+          </div>
+          {% elif t.final_message %}
+          <div class="queued-block">
+            <div class="section-label"><i class="bi bi-hourglass-split"></i> Підтверджена відповідь</div>
+            <div class="draft-text">{{ t.final_message }}</div>
+          </div>
+          {% elif t.draft %}
+          <div>
+            <div class="section-label">Чернетка</div>
+            <div class="draft-text {{ 'draft-muted' if t.status.value == 'rejected' }}">{{ t.draft }}</div>
+          </div>
+          {% endif %}
+
+          {% if t.draft_sources %}
+          <div class="d-flex flex-wrap gap-1">
+            {% for slug in t.draft_sources %}
+              {% if slug in articles %}
+              <a class="src-chip" href="{{ articles[slug].url }}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-text"></i><span>{{ articles[slug].title }}</span></a>
+              {% else %}
+              <span class="src-chip"><i class="bi bi-file-earmark-text"></i><span>{{ slug }}</span></span>
+              {% endif %}
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% endif %}
+
+        {% if t.last_error %}
+        <div class="error-block" role="alert">
+          <i class="bi bi-exclamation-octagon-fill"></i>
+          <pre>{{ t.last_error }}</pre>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% if loop.last %}
+  <p class="text-center text-secondary small mt-4 mb-0">
+    Показано {{ tickets | length }} з {{ counts.get(current_status.value, 0) if current_status else total }}
+  </p>
+  {% endif %}
   {% else %}
-  <tr><td colspan="7">Немає звернень.</td></tr>
+  <div class="empty">
+    <i class="bi bi-inbox"></i>
+    <p class="mt-2 mb-0 fw-medium">Звернень немає</p>
+  </div>
   {% endfor %}
-</table>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+<script>
+  // Drop ?notice from the URL so auto-refresh does not show the banner again.
+  if (location.search.indexOf("notice=") !== -1) {
+    var url = new URL(location.href);
+    url.searchParams.delete("notice");
+    history.replaceState(null, "", url);
+  }
+
+  // On phones the pills scroll sideways: keep the active one in view.
+  var activePill = document.querySelector(".pill.active");
+  if (activePill) activePill.scrollIntoView({ block: "nearest", inline: "center" });
+
+  // Grow draft textareas to fit their text.
+  function fit(el) {
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + 2 + "px";
+  }
+  document.querySelectorAll("textarea.draft-input").forEach(fit);
+  document.addEventListener("input", function (e) {
+    if (e.target.matches("textarea.draft-input")) fit(e.target);
+  });
+  window.addEventListener("resize", function () {
+    document.querySelectorAll("textarea.draft-input").forEach(fit);
+  });
+
+  // Relative creation times ("2 хв тому"), exact local time on hover.
+  var rtf = new Intl.RelativeTimeFormat("uk", { numeric: "auto", style: "short" });
+  var steps = [["year", 31536000], ["month", 2592000], ["day", 86400], ["hour", 3600], ["minute", 60]];
+  function relTimes() {
+    document.querySelectorAll("time.rel-time").forEach(function (el) {
+      var d = new Date(el.getAttribute("datetime"));
+      if (isNaN(d)) return;
+      var sec = Math.round((d - Date.now()) / 1000);
+      var text = "щойно";
+      for (var i = 0; i < steps.length; i++) {
+        if (Math.abs(sec) >= steps[i][1]) { text = rtf.format(Math.round(sec / steps[i][1]), steps[i][0]); break; }
+      }
+      el.textContent = text;
+      el.title = d.toLocaleString("uk");
+    });
+  }
+  relTimes();
+  setInterval(relTimes, 30000);
+</script>
 <script>
   // Auto-refresh every 10 s, unless an operator is editing a draft.
   var dirty = false;
