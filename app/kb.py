@@ -24,6 +24,12 @@ class KbHit(BaseModel):
     rank: float
 
 
+class KbArticleHit(KbHit):
+    """Search hit with article body, for the LLM prompt (not exposed via /kb/search)."""
+
+    body: str
+
+
 def build_tsquery(text: str) -> str:
     """Build an OR-joined prefix tsquery: words shorter than 3 chars dropped, rest cut to a stem."""
     stems: dict[str, None] = {}
@@ -37,27 +43,27 @@ def _search_stmt(tsquery: str) -> Select:
     query = func.to_tsquery("simple", tsquery)
     rank = func.ts_rank(KbArticle.search_vector, query).label("rank")
     return (
-        select(KbArticle.slug, KbArticle.title, KbArticle.url, rank)
+        select(KbArticle.slug, KbArticle.title, KbArticle.url, KbArticle.body, rank)
         .where(KbArticle.search_vector.op("@@")(query))
         .order_by(rank.desc(), KbArticle.id)
         .limit(TOP_N)
     )
 
 
-async def search_articles(session: AsyncSession, text: str) -> list[KbHit]:
+async def search_articles(session: AsyncSession, text: str) -> list[KbArticleHit]:
     tsquery = build_tsquery(text)
     if not tsquery:
         return []
     rows = (await session.execute(_search_stmt(tsquery))).all()
-    return [KbHit(**row._asdict()) for row in rows]
+    return [KbArticleHit(**row._asdict()) for row in rows]
 
 
-def search_articles_sync(session: Session, text: str) -> list[KbHit]:
+def search_articles_sync(session: Session, text: str) -> list[KbArticleHit]:
     tsquery = build_tsquery(text)
     if not tsquery:
         return []
     rows = session.execute(_search_stmt(tsquery)).all()
-    return [KbHit(**row._asdict()) for row in rows]
+    return [KbArticleHit(**row._asdict()) for row in rows]
 
 
 @router.get("/kb/search", response_model=list[KbHit])
@@ -65,4 +71,5 @@ async def kb_search(
     q: Annotated[str, Query(min_length=1)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[KbHit]:
-    return await search_articles(session, q)
+    hits = await search_articles(session, q)
+    return [KbHit(**hit.model_dump(exclude={"body"})) for hit in hits]

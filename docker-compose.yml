@@ -64,7 +64,7 @@ services:
 
   worker:
     <<: *app
-    command: celery -A app.celery_app worker --pool=threads --concurrency=20 -l info
+    command: celery -A app.celery_app worker --pool=threads --concurrency=${WORKER_CONCURRENCY:-20} -l info
 
   beat:
     <<: *app
