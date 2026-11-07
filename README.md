@@ -217,6 +217,17 @@ The demo runs on a clean Ubuntu VM in GCP with only ports 22, 80 and 443 open. H
 
 `DOMAIN` is required by the override: without it `docker compose` refuses to start. Logs: `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f caddy api worker`.
 
+### Troubleshooting
+
+**RabbitMQ exits with `.erlang.cookie: eacces`.** On a slow VM (seen on GCP e2-micro) the healthcheck (`rabbitmq-diagnostics`, which runs as root) can create `/var/lib/rabbitmq/.erlang.cookie` in the volume before the server does, so the file ends up owned by root and the server, running as `rabbitmq`, cannot read it. Fix the ownership in the volume once, then start the stack again:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps --entrypoint sh rabbitmq -c "chown rabbitmq:rabbitmq /var/lib/rabbitmq/.erlang.cookie && chmod 400 /var/lib/rabbitmq/.erlang.cookie"
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+The cookie persists in the `rabbitmqdata` volume, so this is needed only once.
+
 ## Key decisions and trade-offs
 
 Details and the reasoning behind each item are in [`docs/decisions.md`](docs/decisions.md).
