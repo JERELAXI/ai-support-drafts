@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     operator_user: str = Field(min_length=1)
     operator_password: str = Field(min_length=1)
 
+    # Async pool of the API process (one uvicorn worker).
+    api_db_pool_size: int = 20
+    api_db_max_overflow: int = 10
+
     worker_concurrency: int = 20
 
     max_generate_attempts: int = 5

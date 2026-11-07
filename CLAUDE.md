@@ -60,11 +60,11 @@ tests/
 - Type hints everywhere. Async DB access in FastAPI routes; sync sessions inside Celery tasks.
 - Settings only through `config.py` (pydantic-settings).
 - Log every status transition with ticket id.
-- Tests with pytest; DB-dependent tests run against the compose Postgres.
+- Tests with pytest; DB-dependent tests run against the compose Postgres, in a separate `support_test` database that `tests/conftest.py` creates and migrates (never the main one).
 
 ## Commands
 - Start: `docker compose up --build`
 - Migrations: `docker compose run --rm api alembic upgrade head`
-- Tests: `docker compose run --rm api pytest`
+- Tests: `uv run pytest` (locally, compose Postgres on 127.0.0.1:5432 must be up; dev deps are not in the image)
 - Lint: `uv run ruff check .`
 - Load test: `uv run python scripts/send_webhooks.py --count 500 --duplicates`
