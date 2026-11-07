@@ -4,13 +4,13 @@ from alembic import context
 from sqlalchemy import create_engine
 
 from app.config import get_settings
+from app.models import Base
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Models are added in later stages; metadata stays empty for now.
-target_metadata = None
+target_metadata = Base.metadata
 
 db_url = get_settings().sync_database_url
 
